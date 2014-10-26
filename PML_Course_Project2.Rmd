@@ -1,0 +1,152 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "James Van Campen"
+date: "October 26, 2014"
+output: html_document
+---
+
+## Human Activity Recognition
+
+
+### Synopsis
+This report presents the process of developing and applying a prediction algorithm to human activity data. Specifically, weight lifting exercise (WLE) data is analyzed. Each record represents one lift (arm curl). Each lift has a "classe" value (A, B, C, D, or E). When classe equals A the lift was done correctly, Values B, C, D, and E each represent a specific way of doing the lift incorrectly. Six different people performed the exercises and data was collected from motion sensors mounted on their arms, forearms, waists, and the dumbbells. A training data set with 19622 records is used to develop a prediction model for classe. The model is then applied to a test data set with 20 records.  
+
+# Downloading and Subsetting the Data
+The training and testing data files are downloaded separately. The training data is then split into two files for model development purposes (60% training and 40% testing). For additional background on the WLE data see this link.
+
+http://groupware.les.inf.puc-rio.br/har
+
+
+```{r, echo=F}
+setwd("C:\\Users\\liberty\\Documents\\James\\MachLearn")
+```
+
+```{r, echo=T}
+# Download training and test data
+# URLtrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+# URLtest <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+# download.file(URLtrain,destfile=".\\pml_train.csv")
+# download.file(URLtest,destfile=".\\pml_test.csv")
+ptr1 <- read.csv(file=".\\pml_train.csv")
+pte1 <- read.csv(file=".\\pml_test.csv")
+# Subset create training (60%) and testing (40%) data sets from training data
+library(caret)
+library(randomForest)
+set.seed(12321)
+intrain <- createDataPartition(y=ptr1$classe,p=.6,list=F)
+train1 <- ptr1[intrain,]
+test1 <- ptr1[-intrain,]
+```
+
+# Exploratory Analysis
+```{r, echo=T}
+# Quick peek at data
+# dim(train1)
+# names(train1)
+# table(train1$classe,train1$user_name)
+# summary(train1)
+```
+Output from the summary function reveals that many variables in the training data set are missing exactly 11529 values. Since that represents 98% of the rows in the training data set, those variables will be dropped from the analysis.
+
+```{r, echo=T}
+# Create list of variables with 11529 missing values
+# Put output from summary in a data frame and convert the Freq variable to character
+meta1 <- data.frame(summary(train1))
+meta1$Freq <- as.character(meta1$Freq)
+# Get the names of the variables where there are 11529 missing values
+# gsub used to remove some leading spaces from the names
+misslist <- gsub(" ","", as.character(meta1[grep("11529",meta1$Freq),2]))
+# Create data file with only variables of interest
+keeplist <- names(train1)[!(names(train1) %in% misslist)]
+train2 <- train1[,keeplist]
+# Remove X, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, num_window,
+# and user_name
+train2 <- train2[,7:59]
+```
+
+### Tree Classification Model
+
+First try a classification tree to get a sense of how well that works.
+
+```{r,echo=T}
+modfit <- train(classe~.,method="rpart", data=train2)
+print(modfit$finalModel)
+plot(modfit$finalModel,uniform=T,main="Classification Tree")
+text(modfit$finalModel,use.n=T, all=T, cex=.8)
+pred1 <- predict(modfit,newdata=train2)
+table(pred1,train2$classe)
+accuracy1 <- sum(diag(table(pred1,train2$classe))) / dim(train2)[1]
+accuracy1
+```
+
+The in-sample accuracy of the classification tree is 48%. Let us see if we can improve upon this by preprocessing using principal components analysis (PCA) and using the random forest method.
+
+
+### Random Forest with PCA
+
+The model is fit to the training data using the random forest model method. All 52 principal components were used since it does not seem to slow down the calculations to include them, and it does improve the accuracy a little. 
+
+```{r, echo=T}
+# Only 24 principle components are required to capture 95% of the variance
+# 52 pc's were used since it did not take much time and improved the results
+pp1 <- preProcess(train2[,-53],method="pca",pcaComp=52)
+trainpc <- predict(pp1,train2[,-53])
+mfit <- randomForest(train2$classe~., data=trainpc, ntree=500)
+mfit
+
+cv1 <- rfcv(trainpc,train2$classe)
+cv1$error.cv
+```
+
+The cross validation error rate is .029 for the model with 52 principal components.
+```
+
+### Apply Random Forest Model to Testing Data
+
+```{r, echo=T}
+# Remove extra variables
+test2 <- test1[,keeplist]
+test2 <- test2[,7:59]
+testpc <- predict(pp1,test2[,-53])
+mfit2 <- randomForest(test2$classe~., data=testpc, ntree=500)
+mfit2
+
+cv2 <- rfcv(testpc,test2$classe)
+cv2$error.cv
+
+```
+The estimated error from cross validation with the testing data is .042. The expected number of incorrect predictions out of twenty tries is approximately one.
+
+### Making the Twenty Test Predictions
+```{r, echo=T}
+pte2 <- pte1[,keeplist[-59]]
+pte2 <- pte2[,7:58]
+pte2pc <- predict(pp1,pte2)
+pred2 <- predict(mfit2,pte2pc)
+pred2
+table(pred2)
+```
+
+```{r, echo=F}
+# Writing each prediction to a separate file for uploading
+answers <- as.character(pred2)
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(answers)
+```
+
+
+
+
+
+
+
+
+
+
+
